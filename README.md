@@ -36,6 +36,17 @@ python lotto.py -n 5 -b
 # 5회 추첨, 보너스 포함
 ```
 
+4. 역대 당첨번호 표시
+
+- 저장소 루트에 `history.json`을 위치시키면 `lotto.html`이 자동으로 불러와 표시합니다.
+- 또는 제공한 `fetch_history.py` 스크립트를 사용해 최신 데이터를 내려받아 `history.json`을 생성할 수 있습니다:
+
+```bash
+pip install requests
+python fetch_history.py --start 1 --end 0 --out history.json
+# --end 0 은 마지막 회차까지 자동으로 가져옵니다 (인터넷 연결 필요)
+```
+
 저작권 및 라이선스
 
 원하시면 LICENSE 파일을 추가해 드립니다.

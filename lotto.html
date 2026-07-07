@@ -92,6 +92,18 @@
     <div class="actions muted">파일을 브라우저로 열거나 로컬 서버로 서빙하세요.</div>
   </div>
 
+  <div class="card" style="margin-top:18px;">
+    <h1>역대 당첨번호</h1>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <button id="loadHistory">히스토리 불러오기</button>
+      <button id="refreshHistory">새로고침</button>
+      <input id="searchDraw" type="number" placeholder="회차 검색" style="width:140px;padding:6px;border-radius:8px;border:1px solid #eee" />
+      <button id="searchBtn">검색</button>
+      <div class="muted" style="margin-left:auto">history.json 파일을 루트에 배치하거나 `fetch_history.py`로 생성하세요.</div>
+    </div>
+    <div id="historyTable" style="max-height:420px;overflow:auto;border:1px solid #f0f0f0;border-radius:8px;padding:8px;background:#fff"></div>
+  </div>
+
   <script>
     function shuffle(array){
       for(let i=array.length-1;i>0;i--){
@@ -244,6 +256,46 @@
       const quick = generateLottoNumbers();
       inputs.forEach((el,i)=>el.value = quick[i]);
     });
+
+    // --- Load historical data ---
+    let historyCache = [];
+
+    async function loadHistory(force=false){
+      if(historyCache.length && !force) return renderHistory(historyCache);
+      try{
+        const res = await fetch('history.json');
+        if(!res.ok) throw new Error('history.json not found');
+        const data = await res.json();
+        historyCache = data.sort((a,b)=>b.drwNo - a.drwNo);
+        renderHistory(historyCache);
+      }catch(err){
+        document.getElementById('historyTable').innerHTML = '<div class="muted">history.json 을 프로젝트 루트에 위치시키거나 fetch_history.py로 생성하세요.</div>';
+      }
+    }
+
+    function renderHistory(list){
+      const root = document.getElementById('historyTable');
+      if(!list || list.length===0){ root.innerHTML = '<div class="muted">표시할 데이터가 없습니다.</div>'; return; }
+      const rows = list.slice(0,200).map(entry=>{
+        const nums = entry.nums.map(n=>`<span class="num">${String(n).padStart(2,'0')}</span>`).join('');
+        const bonus = entry.bnus ? `<span class="num bonus">${String(entry.bnus).padStart(2,'0')}</span>` : '';
+        return `<div style="padding:6px;border-bottom:1px solid #fafafa"><strong>${entry.drwNo}</strong> <span class="muted">${entry.drwNoDate||''}</span><div class="numbers">${nums}${bonus}</div></div>`;
+      }).join('');
+      root.innerHTML = rows;
+    }
+
+    document.getElementById('loadHistory').addEventListener('click',()=>loadHistory(true));
+    document.getElementById('refreshHistory').addEventListener('click',()=>loadHistory(true));
+    document.getElementById('searchBtn').addEventListener('click',()=>{
+      const n = parseInt(document.getElementById('searchDraw').value,10);
+      if(!Number.isFinite(n)) return alert('회차를 입력하세요.');
+      const found = historyCache.find(h=>h.drwNo===n);
+      if(!found) return alert('해당 회차를 찾을 수 없습니다. 먼저 히스토리를 불러오세요.');
+      renderHistory([found]);
+    });
+
+    // try load automatically
+    loadHistory();
 
     document.getElementById('generate').addEventListener('click',()=>{
       const count=parseInt(document.getElementById('count').value)||1;
