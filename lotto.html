@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>로또 추첨기</title>
+  <style>
+    :root{
+      --primary:#ff385c;
+      --primary-active:#e00b41;
+      --canvas:#ffffff;
+      --surface-soft:#f7f7f7;
+      --muted:#6a6a6a;
+      --ink:#222222;
+      --hairline:#dddddd;
+      --rounded-sm:8px;
+      --rounded-md:14px;
+      --card-shadow:0 6px 18px rgba(0,0,0,.06);
+      --button-height:48px;
+      --font-main: 'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue', 'Noto Sans KR', sans-serif;
+    }
+    body{
+      font-family:var(--font-main);
+      margin:24px;
+      background:var(--surface-soft);
+      color:var(--ink);
+    }
+    .card{
+      max-width:720px;
+      margin:0 auto;
+      background:var(--canvas);
+      padding:20px;
+      border-radius:var(--rounded-md);
+      box-shadow:var(--card-shadow);
+    }
+    h1{margin:0 0 12px;font-size:20px;font-weight:600}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    label{display:flex;align-items:center;gap:6px}
+    input[type="number"]{width:80px;padding:6px;border-radius:var(--rounded-sm);border:1px solid var(--hairline)}
+    button{
+      height:var(--button-height);
+      padding:0 14px;
+      border-radius:var(--rounded-sm);
+      border:0;
+      background:var(--primary);
+      color:#fff;
+      cursor:pointer;
+      font-weight:600;
+    }
+    button:hover{background:var(--primary-active)}
+    .result{margin-top:12px}
+    .draw{padding:12px;border:1px solid #f0f0f0;border-radius:12px;margin-bottom:8px;background:#fafafa}
+    .numbers{font-family:monospace;margin-top:8px}
+    .num{display:inline-block;width:38px;height:38px;line-height:38px;border-radius:50%;background:#f2f2f2;text-align:center;margin-right:8px;font-weight:700}
+    .bonus{background:var(--ink);color:#fff}
+    .actions{margin-top:10px}
+    .muted{color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>로또 번호 추첨기</h1>
+    <div class="controls">
+      <label>추첨 횟수 <input id="count" type="number" min="1" value="1" /></label>
+      <label><input id="bonus" type="checkbox" /> 보너스 포함</label>
+      <button id="generate">생성</button>
+      <button id="copy">복사</button>
+      <button id="download">내보내기</button>
+      <label style="align-items:center">불러오기 <input id="fileInput" type="file" accept="application/json" style="margin-left:6px"/></label>
+      <div class="muted" style="margin-left:auto">Numbers 1–45, 6개 선택</div>
+    </div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div id="results" class="result"></div>
+      </div>
+      <div style="width:300px">
+        <strong>내 번호 비교</strong>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap" id="userInputs">
+          <!-- 6 inputs 생성 -->
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button id="check">비교</button>
+          <button id="fillQuick">빠른 입력</button>
+        </div>
+        <div id="compareResult" class="muted" style="margin-top:10px"></div>
+        <hr/>
+        <strong>저장된 히스토리</strong>
+        <div id="history" style="margin-top:8px;max-height:260px;overflow:auto"></div>
+      </div>
+    </div>
+    <div class="actions muted">파일을 브라우저로 열거나 로컬 서버로 서빙하세요.</div>
+  </div>
+
+  <script>
+    function shuffle(array){
+      for(let i=array.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [array[i],array[j]]=[array[j],array[i]];
+      }
+      return array;
+    }
+
+    function generateLottoNumbers(count=6, maxNumber=45){
+      const pool=Array.from({length:maxNumber},(_,i)=>i+1);
+      shuffle(pool);
+      return pool.slice(0,count).sort((a,b)=>a-b);
+    }
+
+    function generateDraws(drawCount=1, bonus=false){
+      const draws=[];
+      for(let i=0;i<drawCount;i++){
+        const main = generateLottoNumbers();
+        let bonusNumber = null;
+        if(bonus){
+          const remaining = Array.from({length:45},(_,i)=>i+1).filter(n=>!main.includes(n));
+          bonusNumber = remaining[Math.floor(Math.random()*remaining.length)];
+        }
+        draws.push({main,bonus:bonusNumber});
+      }
+      return draws;
+    }
+
+    function formatNumbers(numbers){
+      return numbers.map(n=>`<span class="num">${String(n).padStart(2,'0')}</span>`).join('');
+    }
+
+    function render(draws){
+      const root=document.getElementById('results');
+      root.innerHTML='';
+      draws.forEach((d,idx)=>{
+        const div=document.createElement('div');
+        div.className='draw';
+        div.dataset.index = idx;
+        div.innerHTML=`<strong>[${idx+1}] 추첨</strong><div class="numbers">${formatNumbers(d.main)}${d.bonus?'<span class="num bonus">'+String(d.bonus).padStart(2,'0')+'</span>':''}</div>`;
+        root.appendChild(div);
+      });
+      updateHistory(draws);
+    }
+
+    // --- 저장, 불러오기, 비교 로직 ---
+    const savedHistory = [];
+
+    function updateHistory(draws){
+      const hist = document.getElementById('history');
+      hist.innerHTML='';
+      draws.forEach((d,idx)=>{
+        const el = document.createElement('div');
+        el.style.padding='6px';
+        el.style.borderBottom='1px solid #efefef';
+        el.innerHTML = `<div style="font-size:13px">[${idx+1}] ${d.main.join(', ')}${d.bonus?(' | B:'+d.bonus):''}</div>`;
+        hist.appendChild(el);
+      });
+    }
+
+    function downloadJSON(draws){
+      const blob = new Blob([JSON.stringify(draws,null,2)],{type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'lotto_results.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('download').addEventListener('click',()=>{
+      const root=document.getElementById('results');
+      if(!root.firstChild) return alert('먼저 번호를 생성하세요.');
+      // collect current draws from rendered DOM
+      const draws = [];
+      document.querySelectorAll('#results .draw').forEach(div=>{
+        const nums = Array.from(div.querySelectorAll('.numbers .num')).map(el=>parseInt(el.textContent,10));
+        const bonusEl = div.querySelector('.numbers .bonus');
+        const bonus = bonusEl ? parseInt(bonusEl.textContent,10) : null;
+        draws.push({main:nums, bonus: bonus});
+      });
+      downloadJSON(draws);
+    });
+
+    document.getElementById('fileInput').addEventListener('change', (e)=>{
+      const f = e.target.files[0];
+      if(!f) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        try{
+          const data = JSON.parse(reader.result);
+          render(data);
+        }catch(err){
+          alert('파일 파싱 실패: 유효한 JSON인지 확인하세요.');
+        }
+      };
+      reader.readAsText(f);
+    });
+
+    // --- 사용자 번호 입력 UI ---
+    const userInputsRoot = document.getElementById('userInputs');
+    for(let i=0;i<6;i++){
+      const inp = document.createElement('input');
+      inp.type='number';
+      inp.min=1; inp.max=45;
+      inp.style.width='44px'; inp.style.padding='6px'; inp.style.borderRadius='6px'; inp.style.border='1px solid #ddd';
+      userInputsRoot.appendChild(inp);
+    }
+
+    function readUserNumbers(){
+      const inputs = Array.from(userInputsRoot.querySelectorAll('input'));
+      const nums = inputs.map(i=>parseInt(i.value,10)).filter(n=>Number.isFinite(n));
+      return Array.from(new Set(nums)).filter(n=>n>=1 && n<=45).sort((a,b)=>a-b);
+    }
+
+    function compareNumbers(user, draw){
+      const matches = user.filter(n=>draw.main.includes(n));
+      const bonusMatch = draw.bonus!=null && user.includes(draw.bonus);
+      const count = matches.length;
+      let rank = null;
+      if(count===6) rank='1등';
+      else if(count===5 && bonusMatch) rank='2등';
+      else if(count===5) rank='3등';
+      else if(count===4) rank='4등';
+      else if(count===3) rank='5등';
+      return {count, matches, bonusMatch, rank};
+    }
+
+    document.getElementById('check').addEventListener('click',()=>{
+      const user = readUserNumbers();
+      if(user.length!==6){
+        return alert('6개의 서로 다른 숫자를 입력하세요 (1-45).');
+      }
+      const results = [];
+      document.querySelectorAll('#results .draw').forEach((div,idx)=>{
+        const nums = Array.from(div.querySelectorAll('.numbers .num')).map(el=>parseInt(el.textContent,10));
+        const bonusEl = div.querySelector('.numbers .bonus');
+        const bonus = bonusEl ? parseInt(bonusEl.textContent,10) : null;
+        const res = compareNumbers(user, {main:nums, bonus});
+        results.push({index: idx+1, ...res});
+      });
+      const outRoot = document.getElementById('compareResult');
+      if(results.length===0){ outRoot.textContent='먼저 번호를 생성하세요.'; return; }
+      outRoot.innerHTML = results.map(r=>`[${r.index}] 일치: ${r.count}개 ${r.rank?('→ '+r.rank):''} ${r.matches.length?('| 매칭:'+r.matches.join(',')):''}` ).join('<br/>');
+    });
+
+    document.getElementById('fillQuick').addEventListener('click',()=>{
+      const inputs = Array.from(userInputsRoot.querySelectorAll('input'));
+      const quick = generateLottoNumbers();
+      inputs.forEach((el,i)=>el.value = quick[i]);
+    });
+
+    document.getElementById('generate').addEventListener('click',()=>{
+      const count=parseInt(document.getElementById('count').value)||1;
+      const bonus=document.getElementById('bonus').checked;
+      const draws=generateDraws(count,bonus);
+      render(draws);
+    });
+
+    document.getElementById('copy').addEventListener('click',()=>{
+      const root=document.getElementById('results');
+      if(!root.textContent.trim()) return alert('먼저 번호를 생성해 주세요.');
+      navigator.clipboard.writeText(root.textContent).then(()=>alert('결과가 클립보드에 복사되었습니다.'));
+    });
+  </script>
+</body>
+</html>
