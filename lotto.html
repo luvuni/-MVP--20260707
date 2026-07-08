@@ -60,14 +60,18 @@
 <body>
   <div class="card">
     <h1>로또 번호 추첨기</h1>
-    <div class="controls">
+    <div class="controls" style="align-items:center">
       <label>추첨 횟수 <input id="count" type="number" min="1" value="1" /></label>
       <label><input id="bonus" type="checkbox" /> 보너스 포함</label>
       <button id="generate">생성</button>
       <button id="copy">복사</button>
       <button id="download">내보내기</button>
+      <button id="saveSupabase">Supabase 저장</button>
       <label style="align-items:center">불러오기 <input id="fileInput" type="file" accept="application/json" style="margin-left:6px"/></label>
-      <div class="muted" style="margin-left:auto">Numbers 1–45, 6개 선택</div>
+      <input id="supabaseUrl" type="url" placeholder="https://xxx.supabase.co" style="width:220px;padding:6px;border-radius:8px;border:1px solid #eee" />
+      <input id="supabaseKey" type="password" placeholder="anon key" style="width:220px;padding:6px;border-radius:8px;border:1px solid #eee" />
+      <input id="supabaseTable" type="text" value="lotto_draws" style="width:140px;padding:6px;border-radius:8px;border:1px solid #eee" />
+      <div id="supabaseStatus" class="muted" style="margin-left:auto">Supabase URL / key / table을 입력하세요.</div>
     </div>
 
     <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -93,7 +97,7 @@
   </div>
 
   <div class="card" style="margin-top:18px;">
-    <h1>역대 당첨번호</h1>
+    <h1>최근 3개월 당첨번호</h1>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
       <button id="loadHistory">히스토리 불러오기</button>
       <button id="refreshHistory">새로고침</button>
@@ -153,6 +157,71 @@
     // --- 저장, 불러오기, 비교 로직 ---
     const savedHistory = [];
 
+    function getCurrentDrawsFromDom(){
+      const draws = [];
+      document.querySelectorAll('#results .draw').forEach(div=>{
+        const nums = Array.from(div.querySelectorAll('.numbers .num')).map(el=>parseInt(el.textContent,10));
+        const bonusEl = div.querySelector('.numbers .bonus');
+        const bonus = bonusEl ? parseInt(bonusEl.textContent,10) : null;
+        draws.push({main:nums, bonus});
+      });
+      return draws;
+    }
+
+    function persistSupabaseConfig(){
+      const url = document.getElementById('supabaseUrl').value.trim();
+      const key = document.getElementById('supabaseKey').value.trim();
+      const table = document.getElementById('supabaseTable').value.trim();
+      localStorage.setItem('lotto.supabase.url', url);
+      localStorage.setItem('lotto.supabase.key', key);
+      localStorage.setItem('lotto.supabase.table', table || 'lotto_draws');
+    }
+
+    function loadSupabaseConfig(){
+      document.getElementById('supabaseUrl').value = localStorage.getItem('lotto.supabase.url') || '';
+      document.getElementById('supabaseKey').value = localStorage.getItem('lotto.supabase.key') || '';
+      document.getElementById('supabaseTable').value = localStorage.getItem('lotto.supabase.table') || 'lotto_draws';
+    }
+
+    async function saveToSupabase(){
+      const draws = getCurrentDrawsFromDom();
+      const status = document.getElementById('supabaseStatus');
+      if(!draws.length){ status.textContent='먼저 번호를 생성하세요.'; return; }
+
+      const url = document.getElementById('supabaseUrl').value.trim();
+      const key = document.getElementById('supabaseKey').value.trim();
+      const table = document.getElementById('supabaseTable').value.trim() || 'lotto_draws';
+      if(!url || !key){ status.textContent='Supabase URL과 anon key를 입력하세요.'; return; }
+
+      persistSupabaseConfig();
+      const payload = draws.map((draw, index)=>({
+        draw_index: index + 1,
+        numbers: draw.main,
+        bonus: draw.bonus,
+        created_at: new Date().toISOString(),
+      }));
+
+      try{
+        const res = await fetch(`${url}/rest/v1/${encodeURIComponent(table)}`, {
+          method:'POST',
+          headers:{
+            apikey:key,
+            Authorization:`Bearer ${key}`,
+            'Content-Type':'application/json',
+            Prefer:'return=representation',
+          },
+          body: JSON.stringify(payload),
+        });
+        if(!res.ok){
+          const text = await res.text();
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        status.textContent = `${payload.length}건을 Supabase에 저장했습니다.`;
+      }catch(err){
+        status.textContent = `저장 실패: ${err.message}`;
+      }
+    }
+
     function updateHistory(draws){
       const hist = document.getElementById('history');
       hist.innerHTML='';
@@ -178,15 +247,14 @@
     document.getElementById('download').addEventListener('click',()=>{
       const root=document.getElementById('results');
       if(!root.firstChild) return alert('먼저 번호를 생성하세요.');
-      // collect current draws from rendered DOM
-      const draws = [];
-      document.querySelectorAll('#results .draw').forEach(div=>{
-        const nums = Array.from(div.querySelectorAll('.numbers .num')).map(el=>parseInt(el.textContent,10));
-        const bonusEl = div.querySelector('.numbers .bonus');
-        const bonus = bonusEl ? parseInt(bonusEl.textContent,10) : null;
-        draws.push({main:nums, bonus: bonus});
-      });
+      const draws = getCurrentDrawsFromDom();
       downloadJSON(draws);
+    });
+
+    document.getElementById('saveSupabase').addEventListener('click', saveToSupabase);
+    ['supabaseUrl','supabaseKey','supabaseTable'].forEach(id=>{
+      document.getElementById(id).addEventListener('change', persistSupabaseConfig);
+      document.getElementById(id).addEventListener('input', persistSupabaseConfig);
     });
 
     document.getElementById('fileInput').addEventListener('change', (e)=>{
@@ -260,13 +328,30 @@
     // --- Load historical data ---
     let historyCache = [];
 
+    function parseDrawDate(value){
+      if(!value) return null;
+      const normalized = String(value).trim().replace(/\./g,'-').replace(/\//g,'-');
+      const date = new Date(normalized);
+      return Number.isNaN(date.valueOf()) ? null : date;
+    }
+
     async function loadHistory(force=false){
       if(historyCache.length && !force) return renderHistory(historyCache);
       try{
         const res = await fetch('history.json');
         if(!res.ok) throw new Error('history.json not found');
         const data = await res.json();
-        historyCache = data.sort((a,b)=>b.drwNo - a.drwNo);
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - 3);
+
+        historyCache = data
+          .map(entry => ({
+            ...entry,
+            parsedDate: parseDrawDate(entry.drwNoDate),
+          }))
+          .filter(entry => entry.parsedDate && entry.parsedDate >= cutoff)
+          .sort((a,b)=>b.parsedDate - a.parsedDate);
+
         renderHistory(historyCache);
       }catch(err){
         document.getElementById('historyTable').innerHTML = '<div class="muted">history.json 을 프로젝트 루트에 위치시키거나 fetch_history.py로 생성하세요.</div>';
@@ -275,8 +360,8 @@
 
     function renderHistory(list){
       const root = document.getElementById('historyTable');
-      if(!list || list.length===0){ root.innerHTML = '<div class="muted">표시할 데이터가 없습니다.</div>'; return; }
-      const rows = list.slice(0,200).map(entry=>{
+      if(!list || list.length===0){ root.innerHTML = '<div class="muted">표시할 최근 3개월 데이터가 없습니다.</div>'; return; }
+      const rows = list.map(entry=>{
         const nums = entry.nums.map(n=>`<span class="num">${String(n).padStart(2,'0')}</span>`).join('');
         const bonus = entry.bnus ? `<span class="num bonus">${String(entry.bnus).padStart(2,'0')}</span>` : '';
         return `<div style="padding:6px;border-bottom:1px solid #fafafa"><strong>${entry.drwNo}</strong> <span class="muted">${entry.drwNoDate||''}</span><div class="numbers">${nums}${bonus}</div></div>`;
@@ -296,6 +381,7 @@
 
     // try load automatically
     loadHistory();
+    loadSupabaseConfig();
 
     document.getElementById('generate').addEventListener('click',()=>{
       const count=parseInt(document.getElementById('count').value)||1;

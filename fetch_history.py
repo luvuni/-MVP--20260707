@@ -17,9 +17,22 @@ import requests
 def fetch_draw(n: int) -> Dict:
     url = "https://www.dhlottery.co.kr/common.do"
     params = {"method": "getLottoNumber", "drwNo": n}
-    r = requests.get(url, params=params, timeout=10)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    r = requests.get(url, params=params, headers=headers, timeout=10)
     r.raise_for_status()
-    return r.json()
+    try:
+        return r.json()
+    except Exception:
+        text = r.text
+        # try to extract a JSON object substring
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end+1])
+            except Exception:
+                pass
+        raise
 
 
 def main():
