@@ -7,8 +7,8 @@ def generate_lotto_numbers(count: int = 6, max_number: int = 45) -> list[int]:
     return sorted(random.sample(range(1, max_number + 1), count))
 
 
-def generate_draw(draw_count: int = 1, bonus: bool = False) -> list[tuple[list[int], int | None]]:
-    """Generate one or more lotto draws."""
+def generate_draw(draw_count: int = 5, bonus: bool = False) -> list[tuple[list[int], int | None]]:
+    """Generate five lotto recommendations by default."""
     draws: list[tuple[list[int], int | None]] = []
     for _ in range(draw_count):
         main_numbers = generate_lotto_numbers()
@@ -35,8 +35,8 @@ def parse_args() -> argparse.Namespace:
         "-n",
         "--count",
         type=int,
-        default=1,
-        help="생성할 추첨 횟수 (기본값: 1)",
+        default=5,
+        help="생성할 추천 번호 세트 수 (기본값: 5)",
     )
     parser.add_argument(
         "-b",

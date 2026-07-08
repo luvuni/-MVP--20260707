@@ -61,9 +61,8 @@
   <div class="card">
     <h1>로또 번호 추첨기</h1>
     <div class="controls" style="align-items:center">
-      <label>추첨 횟수 <input id="count" type="number" min="1" value="1" /></label>
+      <label>추천 개수 <input id="count" type="number" min="1" value="5" /></label>
       <label><input id="bonus" type="checkbox" /> 보너스 포함</label>
-      <button id="generate">생성</button>
       <button id="copy">복사</button>
       <button id="download">내보내기</button>
       <button id="saveSupabase">Supabase 저장</button>
@@ -383,12 +382,14 @@
     loadHistory();
     loadSupabaseConfig();
 
-    document.getElementById('generate').addEventListener('click',()=>{
-      const count=parseInt(document.getElementById('count').value)||1;
+    function generateAndRender(){
+      const count=Math.max(1, parseInt(document.getElementById('count').value,10) || 5);
       const bonus=document.getElementById('bonus').checked;
       const draws=generateDraws(count,bonus);
       render(draws);
-    });
+    }
+
+    generateAndRender();
 
     document.getElementById('copy').addEventListener('click',()=>{
       const root=document.getElementById('results');
